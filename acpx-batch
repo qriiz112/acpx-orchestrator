@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# acpx-batch - Batch task runner for acpx agents
+# Usage: acpx-batch <agent> <tasks-file> [options]
+
+set -e
+
+AGENT="${1:-opencode}"
+TASKS_FILE="${2:-}"
+APPROVE_MODE="${3:---approve-reads}"
+TIMEOUT="${4:-300}"
+
+if [[ -z "$TASKS_FILE" ]]; then
+  echo "Usage: acpx-batch <agent> <tasks-file> [approve-mode] [timeout]"
+  echo ""
+  echo "Examples:"
+  echo "  acpx-batch opencode tasks.txt"
+  echo "  acpx-batch opencode tasks.txt --approve-all 600"
+  echo ""
+  echo "Task file format (one task per line):"
+  echo "  Refactor auth module"
+  echo "  Add input validation"
+  echo "  Update tests"
+  exit 1
+fi
+
+if [[ ! -f "$TASKS_FILE" ]]; then
+  echo "Error: Tasks file not found: $TASKS_FILE"
+  exit 1
+fi
+
+echo "🚀 Running batch tasks with $AGENT"
+echo "📁 Tasks file: $TASKS_FILE"
+echo "⚙️  Approve mode: $APPROVE_MODE"
+echo "⏱️  Timeout: ${TIMEOUT}s"
+echo ""
+
+TASK_NUM=0
+while IFS= read -r task || [[ -n "$task" ]]; do
+  # Skip empty lines and comments
+  [[ -z "$task" || "$task" =~ ^# ]] && continue
+  
+  TASK_NUM=$((TASK_NUM + 1))
+  echo "========================================"
+  echo "📋 Task $TASK_NUM: $task"
+  echo "========================================"
+  
+  if acpx "$AGENT" "$APPROVE_MODE" --timeout "$TIMEOUT" exec "$task"; then
+    echo "✅ Task $TASK_NUM completed"
+  else
+    echo "❌ Task $TASK_NUM failed"
+    echo "Continue? (y/n/a)"
+    read -r response
+    case "$response" in
+      n|N) exit 1 ;;
+      a|A) break ;;
+    esac
+  fi
+  echo ""
+done < "$TASKS_FILE"
+
+echo "🏁 Batch complete! $TASK_NUM tasks processed."

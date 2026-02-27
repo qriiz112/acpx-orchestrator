@@ -1,0 +1,376 @@
+#!/bin/bash
+# acpx - Enhanced Agent Orchestrator CLI
+# Wrapper di atas acpx dengan fitur orchestration
+# v4.0.0 - Agent Orchestrator Expert Edition
+
+set -e
+
+VERSION="4.0.0"
+ACPX_BIN="$(which acpx 2>/dev/null || echo 'acpx')"
+
+show_help() {
+  cat << 'EOF'
+acpx v4.0 - Enhanced Agent Orchestrator
+
+USAGE:
+  acpx <command> [options]
+
+COMMANDS:
+  run <agent> <task>       Run single agent
+  parallel <file>          Run multiple agents parallel from file
+  batch <file>             Run agents sequential from file
+  discover                 Discover installed agents
+  health                   Health check all agents
+  watch <agent>            Watch agent session status
+  kill <agent>             Kill agent sessions
+  workflow <name>          Run preset workflow
+  exec <agent> <task>      Direct exec (original acpx)
+  json <agent> <task>       Run with JSON output + parse
+
+WORKFLOWS:
+  review                   Review code workflow
+  refactor                 Refactor workflow
+  test                     Generate tests workflow
+  debug                    Debug workflow
+
+AGENTS:
+  opencode, pi, codex, claude, gemini
+
+EXAMPLES:
+  acpx run opencode "Fix bug"
+  acpx parallel tasks.txt
+  acpx discover
+  acpx health
+  acpx watch opencode
+  acpx workflow review
+  acpx json opencode "List files" | jq '.files'
+
+EOF
+}
+
+# Run single agent dengan enhanced options
+ cmd_run() {
+  local agent="${1:-}"
+  shift || true
+  local task="$*"
+  
+  if [[ -z "$agent" || -z "$task" ]]; then
+    echo "Usage: acpx run <agent> <task>"
+    exit 1
+  fi
+  
+  echo "🚀 Running $agent: $task"
+  
+  # ACP agents (via original acpx): opencode, pi, codex, claude, gemini
+  if [[ "$agent" == "opencode" ]] || [[ "$agent" == "pi" ]] || [[ "$agent" == "codex" ]] || [[ "$agent" == "claude" ]] || [[ "$agent" == "gemini" ]]; then
+    if [[ "$agent" == "opencode" ]] || [[ "$agent" == "pi" ]]; then
+      $ACPX_BIN "$agent" --approve-reads run "$task"
+    else
+      $ACPX_BIN "$agent" --approve-reads exec "$task"
+    fi
+  # CLI agents (direct): kilo, kimi, aider, etc
+  elif [[ "$agent" == "kilo" ]]; then
+    kilo run "$task"
+  elif [[ "$agent" == "kimi" ]]; then
+    kimi --print --yolo --prompt "$task"
+  elif [[ "$agent" == "gemini" ]] && command -v gemini &> /dev/null; then
+    gemini "$task"
+  else
+    # Try direct execution for any other agent
+    $agent "$task" 2>/dev/null || echo "❌ Unknown agent or not installed: $agent"
+  fi
+}
+
+# Parallel execution dari file
+ cmd_parallel() {
+  local file="${1:-}"
+  local cwd="${2:-$(pwd)}"
+  
+  if [[ ! -f "$file" ]]; then
+    echo "Usage: acpx parallel <tasks-file> [working-directory]"
+    echo ""
+    echo "⚠️  WARNING: Parallel tasks run SIMULTANEOUSLY!"
+    echo "   • Use for INDEPENDENT tasks only"
+    echo "   • DON'T use if tasks depend on each other"
+    echo "   • Use 'acpx batch' for dependent tasks"
+    echo ""
+    echo "💡 Agents write to CURRENT DIRECTORY by default"
+    echo ""
+    echo "File format:"
+    echo "  opencode exec 'Task 1'"
+    echo "  pi exec 'Task 2'"
+    echo "  kimi --print --yolo --prompt 'Task 3'"
+    exit 1
+  fi
+  
+  echo "🚀 Running parallel tasks from $file"
+  echo "📁 Working directory: $cwd"
+  echo "⚠️  WARNING: Tasks run simultaneously (independent tasks only!)"
+  echo "========================================"
+  
+  local count=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    
+    count=$((count + 1))
+    echo "[$count] Spawning: $line"
+    # Spawn in background with working directory
+    (cd "$cwd" && eval "$line") &
+  done < "$file"
+  
+  echo "========================================"
+  echo "Spawned $count agents in parallel"
+  echo "Waiting for completion..."
+  wait
+  echo "✅ All tasks completed"
+}
+
+# Sequential batch
+ cmd_batch() {
+  local file="${1:-}"
+  local cwd="${2:-$(pwd)}"
+  
+  if [[ ! -f "$file" ]]; then
+    echo "Usage: acpx batch <tasks-file> [working-directory]"
+    echo ""
+    echo "💡 TIPS:"
+    echo "   • Agents write files to CURRENT DIRECTORY by default"
+    echo "   • Use full paths OR specify working directory"
+    echo "   • Check agent has write permission to target directory"
+    echo ""
+    echo "Example tasks.txt:"
+    echo "  opencode exec 'Create calculator.html'"
+    echo "  kimi --print --yolo --prompt 'Review calculator.html'"
+    exit 1
+  fi
+  
+  echo "🔄 Running sequential batch: $file"
+  echo "📁 Working directory: $cwd"
+  echo "========================================"
+  
+  local count=0
+  local failed=0
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    
+    count=$((count + 1))
+    echo ""
+    echo "[$count] Running: $line"
+    echo "----------------------------------------"
+    
+    # Run in specified working directory
+    if (cd "$cwd" && eval "$line"); then
+      echo "✅ Task $count completed"
+    else
+      echo "❌ Task $count failed (exit code: $?)"
+      failed=$((failed + 1))
+      echo "Continuing to next task..."
+    fi
+  done < "$file"
+  
+  echo ""
+  echo "========================================"
+  echo "✅ Batch complete: $count tasks"
+  if [[ $failed -gt 0 ]]; then
+    echo "⚠️  Failed: $failed tasks"
+    exit 1
+  fi
+}
+
+# Discover installed agents
+ cmd_discover() {
+  echo "🔍 Discovering agents..."
+  echo ""
+  
+  local agents=("opencode" "pi" "codex" "claude" "gemini" "kimi" "kilo")
+  local found=0
+  
+  for agent in "${agents[@]}"; do
+    if command -v "$agent" &> /dev/null; then
+      echo "✅ $agent"
+      found=$((found + 1))
+    else
+      echo "❌ $agent (not installed)"
+    fi
+  done
+  
+  echo ""
+  echo "Found: $found agents"
+  
+  # Check acpx agents
+  echo ""
+  echo "ACP Agents (via acpx):"
+  $ACPX_BIN --help | grep -E "^  (codex|claude|gemini|opencode|pi)" || true
+}
+
+# Health check
+ cmd_health() {
+  echo "🏥 Health Check"
+  echo "========================================"
+  
+  # Test opencode
+  echo -n "opencode... "
+  if timeout 10 $ACPX_BIN opencode exec "Say hi" > /dev/null 2>&1; then
+    echo "✅ Healthy"
+  else
+    echo "❌ Failed"
+  fi
+  
+  # Test pi
+  echo -n "pi... "
+  if timeout 10 $ACPX_BIN pi exec "Say hi" > /dev/null 2>&1; then
+    echo "✅ Healthy"
+  else
+    echo "❌ Failed"
+  fi
+  
+  # Test kimi
+  echo -n "kimi... "
+  if command -v kimi &> /dev/null; then
+    echo "✅ Installed (CLI)"
+  else
+    echo "❌ Not installed"
+  fi
+  
+  echo "========================================"
+}
+
+# Watch agent status
+ cmd_watch() {
+  local agent="${1:-}"
+  
+  if [[ -z "$agent" ]]; then
+    echo "Usage: acpx watch <agent>"
+    exit 1
+  fi
+  
+  echo "👁️  Watching $agent (Ctrl+C to stop)"
+  while true; do
+    clear
+    echo "$(date '+%H:%M:%S') - $agent status:"
+    $ACPX_BIN "$agent" status 2>&1 || echo "Not running"
+    sleep 5
+  done
+}
+
+# Kill agent sessions
+ cmd_kill() {
+  local agent="${1:-}"
+  
+  if [[ -z "$agent" ]]; then
+    echo "Usage: acpx kill <agent>"
+    exit 1
+  fi
+  
+  echo "🗑️  Killing $agent sessions..."
+  $ACPX_BIN "$agent" cancel 2>&1 || true
+  echo "✅ Done"
+}
+
+# Workflow presets
+ cmd_workflow() {
+  local name="${1:-}"
+  
+  case "$name" in
+    review)
+      echo "🔍 Review Workflow"
+      $ACPX_BIN opencode --approve-reads --format json exec "Review codebase for bugs, security, performance. Output JSON with issues array."
+      ;;
+    refactor)
+      echo "🔧 Refactor Workflow"
+      $ACPX_BIN opencode --approve-reads exec "Refactor main module: improve naming, reduce complexity, extract functions. Show diff."
+      ;;
+    test)
+      echo "🧪 Test Workflow"
+      $ACPX_BIN pi exec "Generate pytest tests for main module with happy path and edge cases"
+      ;;
+    debug)
+      echo "🐛 Debug Workflow"
+      $ACPX_BIN opencode --timeout 600 --approve-reads exec "Investigate failing tests. Check logs, recent commits, find root cause."
+      ;;
+    *)
+      echo "Usage: acpx workflow <name>"
+      echo ""
+      echo "Available workflows:"
+      echo "  review    - Code review"
+      echo "  refactor  - Safe refactoring"
+      echo "  test      - Generate tests"
+      echo "  debug     - Deep debugging"
+      ;;
+  esac
+}
+
+# JSON output with parsing
+ cmd_json() {
+  local agent="${1:-}"
+  shift || true
+  local task="$*"
+  
+  if [[ -z "$agent" || -z "$task" ]]; then
+    echo "Usage: acpx json <agent> <task>"
+    echo ""
+    echo "Example: acpx json opencode 'List functions' | jq '.functions'"
+    exit 1
+  fi
+  
+  $ACPX_BIN "$agent" --format json --json-strict exec "$task"
+}
+
+# Direct exec (pass-through ke acpx asli)
+ cmd_exec() {
+  $ACPX_BIN "$@"
+}
+
+# Main command dispatcher
+case "${1:-}" in
+  run)
+    shift
+    cmd_run "$@"
+    ;;
+  parallel)
+    shift
+    cmd_parallel "$@"
+    ;;
+  batch)
+    shift
+    cmd_batch "$@"
+    ;;
+  discover)
+    cmd_discover
+    ;;
+  health)
+    cmd_health
+    ;;
+  watch)
+    shift
+    cmd_watch "$@"
+    ;;
+  kill)
+    shift
+    cmd_kill "$@"
+    ;;
+  workflow)
+    shift
+    cmd_workflow "$@"
+    ;;
+  json)
+    shift
+    cmd_json "$@"
+    ;;
+  exec)
+    shift
+    cmd_exec "$@"
+    ;;
+  -h|--help|help)
+    show_help
+    ;;
+  -v|--version|version)
+    echo "acpx v$VERSION (Enhanced Orchestrator)"
+    echo "Original: $($ACPX_BIN --version 2>&1)"
+    ;;
+  *)
+    # Default: pass-through ke acpx asli
+    $ACPX_BIN "$@"
+    ;;
+esac

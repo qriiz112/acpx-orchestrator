@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# acpx-workflow - Common workflow presets for acpx
+# Usage: acpx-workflow <workflow-name> [agent]
+
+WORKFLOW="${1}"
+AGENT="${2:-opencode}"
+
+if [[ -z "$WORKFLOW" ]]; then
+  echo "Usage: acpx-workflow <workflow-name> [agent]"
+  echo ""
+  echo "Available workflows:"
+  echo "  review       - Code review with structured output"
+  echo "  refactor     - Safe refactoring with change preview"
+  echo "  test-gen     - Generate test coverage"
+  echo "  docs         - Auto-generate documentation"
+  echo "  bug-hunt     - Deep bug investigation"
+  echo "  onboard      - Analyze codebase for new contributors"
+  exit 1
+fi
+
+case "$WORKFLOW" in
+  review)
+    acpx "$AGENT" --approve-reads --format json exec \
+      "Review the codebase changes for: 1) Bugs, 2) Style issues, 3) Performance problems, 4) Security concerns. Output structured JSON with 'issues' array (severity, file, line, description) and 'lgtm' boolean."
+    ;;
+    
+  refactor)
+    acpx "$AGENT" --approve-reads exec \
+      "Refactor the main module to improve code quality: extract functions, reduce complexity, improve naming. Show me a diff of changes before applying."
+    ;;
+    
+  test-gen)
+    acpx "$AGENT" --approve-reads exec \
+      "Generate comprehensive pytest tests for the main module. Cover: happy path, edge cases, error handling, and boundary conditions. Use mocks where appropriate."
+    ;;
+    
+  docs)
+    acpx "$AGENT" --approve-reads exec \
+      "Generate documentation: 1) API docs from docstrings, 2) Architecture overview, 3) Setup guide, 4) Contributing guide. Save to docs/ directory."
+    ;;
+    
+  bug-hunt)
+    acpx "$AGENT" --timeout 600 --approve-reads exec \
+      "Deep investigation: Find the root cause of flaky tests or bugs. Check: test logs, recent commits, dependencies, environment. Provide detailed analysis and fix recommendation."
+    ;;
+    
+  onboard)
+    acpx "$AGENT" --approve-reads --format json exec \
+      "Analyze codebase for a new team member. Output: 1) Project overview, 2) Key files to understand first, 3) Architecture diagram (text), 4) Common tasks guide, 5) Gotchas and pitfalls."
+    ;;
+    
+  *)
+    echo "Unknown workflow: $WORKFLOW"
+    echo "Run 'acpx-workflow' for list of available workflows"
+    exit 1
+    ;;
+esac

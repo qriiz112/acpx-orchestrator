@@ -1,0 +1,60 @@
+#!/bin/bash
+# acpx-discover - Find installed terminal AI agents
+# Usage: acpx-discover
+
+echo "🔍 Discovering terminal AI agents..."
+echo ""
+
+# Format: name|check_command|spawn_pattern|type
+agents=(
+  # ACP Agents
+  "opencode|opencode --version|opencode exec '[task]'|ACP"
+  "pi|pi --version|pi exec '[task]'|ACP"
+  "kilo|kilo --version|kilo run '[task]'|ACP"
+  
+  # CLI Agents
+  "kimi|kimi --version|kimi --print --yolo --prompt '[task]'|CLI"
+  "aider|aider --version|aider --message '[task]' --yes|CLI"
+  "gemini|gemini --help|gemini '[task]'|CLI"
+  "avante|avante --help|avante --prompt '[task]'|CLI"
+  
+  # PTY Agents (need TTY)
+  "codex|codex --version|bash pty:true command:'codex exec \"[task]\"'|PTY"
+  "claude|claude --version|bash pty:true command:'claude \"[task]\"'|PTY"
+  "openhands-cli|openhands-cli --help|bash pty:true command:'openhands-cli \"[task]\"'|PTY"
+  "claude-code|claude-code --help|bash pty:true command:'claude-code \"[task]\"'|PTY"
+  "cline|cline --help|bash pty:true command:'cline \"[task]\"'|PTY"
+  
+  # LangChain/LangGraph (if installed)
+  "langgraph|langgraph --help|langgraph run '[task]'|CLI"
+  "langchain|langchain --help|langchain serve|CLI"
+)
+
+found=0
+for entry in "${agents[@]}"; do
+  name="${entry%%|*}"
+  rest="${entry#*|}"
+  check="${rest%%|*}"
+  rest="${rest#*|}"
+  spawn="${rest%%|*}"
+  type="${rest##*|}"
+  
+  if command -v "$name" &> /dev/null; then
+    echo "✅ $name ($type)"
+    echo "   Check: $check"
+    echo "   Spawn: $spawn"
+    found=$((found + 1))
+  else
+    echo "❌ $name (not installed)"
+  fi
+  echo ""
+done
+
+echo "========================================"
+echo "Found: $found agents"
+echo "========================================"
+echo ""
+echo "Agent Types:"
+echo "  ACP  = Agent Communication Protocol (cleanest)"
+echo "  CLI  = Command-line with flags"
+echo "  PTY  = Requires pseudoterminal (TUI-based)"
